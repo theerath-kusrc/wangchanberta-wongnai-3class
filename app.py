@@ -10,9 +10,13 @@ st.set_page_config(
     layout="wide"
 )
 
-# 2. เชื่อมต่อโมเดลของเพื่อน (Kanyasiri)
-# หมายเหตุ: หากเพื่อนเทรนแบบ 3 คลาสแล้ว ให้ใช้ ID นี้ได้เลย
-MODEL_ID = 'Kanyasiri/wangchanberta-wongnai-sentiment'
+from transformers import CamembertTokenizer, CamembertForSequenceClassification
+
+model_name = "Kanyasiri/wangchanberta-wongnai-3class"
+
+# โหลดโดยระบุคลาส Camembert ตรงๆ
+tokenizer = CamembertTokenizer.from_pretrained(model_name)
+model = CamembertForSequenceClassification.from_pretrained(model_name)
 
 @st.cache_resource
 def load_model():
@@ -116,3 +120,4 @@ with tab2:
                 
                 csv_data = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 ดาวน์โหลดผลลัพธ์", csv_data, "result.csv", "text/csv")
+
