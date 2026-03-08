@@ -12,7 +12,7 @@ st.set_page_config(
 
 from transformers import AutoConfig, AutoModelForSequenceClassification, AutoTokenizer
 
-model_name = "Kanyasiri/wangchanberta-wongnai-sentiment"
+model_name = "Kanyasiri/wangchanberta-wongnai-3class"
 
 # 1. โหลด Config มาก่อน
 config = AutoConfig.from_pretrained(model_name)
@@ -127,5 +127,6 @@ with tab2:
                 
                 csv_data = df.to_csv(index=False).encode('utf-8')
                 st.download_button("📥 ดาวน์โหลดผลลัพธ์", csv_data, "result.csv", "text/csv")
+
 
 
