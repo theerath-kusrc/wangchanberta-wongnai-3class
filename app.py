@@ -1,116 +1,128 @@
-import gradio as gr
+import streamlit as st
 import pandas as pd
 from transformers import pipeline
+import torch
 
-# 1. 📍 ใส่ชื่อโมเดลของเพื่อนตรงนี้ (รอเพื่อนคนที่ 2 เทรนเสร็จ แล้วเอาลิงก์มาเปลี่ยนตรงนี้นะครับ)
-MODEL_ID = 'Kanyasiri/wangchanberta-wongnai-3class'
+# 1. ⚙️ การตั้งค่าหน้าเว็บ (เก็บคะแนน UI/UX)
+st.set_page_config(
+    page_title="Thai Sentiment Analysis - Wongnai",
+    page_icon="🍽️",
+    layout="wide"
+)
 
-# 2. เตรียม 5 คำถามสำหรับ Demo Mode ตามโจทย์กำหนด [cite: 43]
-DEMOS = [
-    ["อาหารอร่อยมาก บรรยากาศดี บริการเยี่ยม กลับมาอีกแน่นอน"],
-    ["รอนานมาก อาหารเย็นแล้ว แถมราคาแพงเกินจริง"],
-    ["ร้านธรรมดา อาหารกินได้ ราคาโอเค ไม่มีอะไรพิเศษ"],
-    ["โคตรอร่อย ราคาถูก คุ้มมากกกก แนะนำเลย"],
-    ["ห้องน้ำสกปรก พนักงานไม่สุภาพ อาหารรสชาติแย่มาก ไม่แนะนำเลย"]
-]
+# 2. 📍 เชื่อมต่อโมเดล (ปรับ MODEL_ID ให้ตรงกับที่เพื่อนเทรน 3-Class)
+# หากเพื่อนยังไม่ได้เทรน 3-class ให้ใช้ชื่อเดิม แต่ต้องแก้ num_labels ใน Colab เป็น 3
+MODEL_ID = 'Kanyasiri/wangchanberta-wongnai-sentiment'
 
-# 3. โหลดโมเดลผ่าน Pipeline (ใช้ try-except ไว้ก่อน เผื่อเพื่อนยังเทรนไม่เสร็จจะได้รันเว็บได้)
-try:
-    classifier = pipeline('text-classification', model=MODEL_ID, top_k=None)
-except Exception as e:
-    print("ระบบจำลอง (Mockup): เนื่องจากยังไม่ได้เชื่อมโมเดลจริง")
-    def classifier(text):
-        return [[{'label': 'LABEL_0', 'score': 0.8}, {'label': 'LABEL_1', 'score': 0.15}, {'label': 'LABEL_2', 'score': 0.05}]]
-
-def process_prediction(text):
-    if not text.strip():
-        return {"กรุณาพิมพ์ข้อความ": 1.0}, "-"
-        
-    results = classifier(text)[0]
-    
-    # แปลงผลลัพธ์ให้เป็น Positive, Neutral, Negative
-    label_map = {'LABEL_0': 'Positive', 'LABEL_1': 'Neutral', 'LABEL_2': 'Negative'}
-    
-    output_dict = {}
-    for res in results:
-        label_name = label_map.get(res['label'], res['label'])
-        output_dict[label_name] = res['score']
-    
-    best_label = max(output_dict, key=output_dict.get)
-    return output_dict, best_label
-
-# 4. ฟังก์ชันวิเคราะห์ข้อความเดียว + เก็บประวัติ [cite: 36-38]
-def predict_single(text, history):
-    scores_dict, best_label = process_prediction(text)
-    confidence = scores_dict.get(best_label, 0)
-    
-    # อัปเดตตารางประวัติ
-    new_entry = [text, best_label, f"{confidence:.2%}"]
-    updated_history = [new_entry] + history
-    
-    return scores_dict, updated_history
-
-# 5. ฟังก์ชันวิเคราะห์แบบ Batch ด้วยไฟล์ CSV 
-def predict_batch(file):
-    if file is None:
+# ฟังก์ชันโหลดโมเดลแบบ Cache เพื่อไม่ให้โหลดใหม่ทุกครั้งที่กดปุ่ม
+@st.cache_resource
+def load_classifier():
+    try:
+        return pipeline('text-classification', model=MODEL_ID, top_k=None)
+    except:
         return None
-    
-    df = pd.read_csv(file.name)
-    review_col = 'review' if 'review' in df.columns else df.columns[0]
-    
-    sentiments = []
-    confidences = []
-    
-    for text in df[review_col].astype(str):
-        scores_dict, best_label = process_prediction(text)
-        sentiments.append(best_label)
-        confidences.append(f"{scores_dict.get(best_label, 0):.2%}")
-        
-    df['Sentiment'] = sentiments
-    df['Confidence %'] = confidences
-    return df
 
-# 6. สร้างหน้าตา Web App (UI) แบบมี 2 แท็บ [cite: 34]
-with gr.Blocks(theme=gr.themes.Soft(), title='Thai Sentiment Analysis') as demo:
-    gr.Markdown("# 🇹🇭 Thai Sentiment Analysis: Wongnai Reviews")
-    gr.Markdown("วิเคราะห์ความรู้สึกจากรีวิวร้านอาหารด้วยโมเดล WangchanBERTa (Positive / Neutral / Negative)")
+classifier = load_classifier()
+
+# 3. 📝 สไตล์และส่วนหัว
+st.title("🇹🇭 Thai Sentiment Analysis: Wongnai Reviews")
+st.markdown("""
+แอปพลิเคชันวิเคราะห์ความรู้สึกจากรีวิวร้านอาหาร โดยใช้โมเดล **WangchanBERTa** รองรับการจำแนก 3 ระดับ: **Positive (บวก)**, **Neutral (กลาง)**, และ **Negative (ลบ)**
+""")
+
+# 4. 🕒 ระบบประวัติการใช้งาน (Sidebar)
+if 'history' not in st.session_state:
+    st.session_state.history = []
+
+with st.sidebar:
+    st.header("🕒 Recent History")
+    if st.session_state.history:
+        for idx, item in enumerate(st.session_state.history):
+            with st.expander(f"{idx+1}. {item['text'][:20]}..."):
+                st.write(f"**รีวิว:** {item['text']}")
+                st.write(f"**ผลลัพธ์:** {item['label']}")
+    else:
+        st.caption("ยังไม่มีประวัติการวิเคราะห์")
     
-    with gr.Tabs():
-        # --- แท็บที่ 1: วิเคราะห์ข้อความ ---
-        with gr.Tab("วิเคราะห์ข้อความ (Single)"):
-            with gr.Row():
-                with gr.Column():
-                    inp = gr.Textbox(label="พิมพ์รีวิวร้านอาหารภาษาไทย", lines=3, placeholder="พิมพ์รีวิวที่นี่...")
-                    btn = gr.Button("🔍 วิเคราะห์ Sentiment", variant='primary')
+    if st.button("ล้างประวัติ"):
+        st.session_state.history = []
+        st.rerun()
+
+# 5. 🛠️ ส่วนการทำงานหลัก (Tabs)
+tab1, tab2, tab3 = st.tabs(["🔍 วิเคราะห์ข้อความ", "📂 อัปโหลด CSV", "💡 ตัวอย่าง (Demo)"])
+
+with tab1:
+    col1, col2 = st.columns([2, 1])
+    
+    with col1:
+        input_text = st.text_area("กรอกรีวิวภาษาไทยที่นี่:", placeholder="เช่น อาหารรสชาติปานกลาง แต่บริการค่อนข้างช้า...", height=150)
+        predict_btn = st.button("วิเคราะห์ความรู้สึก", type="primary", use_container_width=True)
+
+    with col2:
+        if predict_btn and input_text:
+            if classifier:
+                with st.spinner('กำลังประมวลผล...'):
+                    raw_results = classifier(input_text)[0]
                     
-                    gr.Markdown("### 💡 ตัวอย่างรีวิว (Demo Mode)")
-                    gr.Examples(examples=DEMOS, inputs=inp)
+                    # 🚨 Mapping 3 คลาส (เช็กกับเพื่อนว่า 0, 1, 2 เรียงอย่างไร)
+                    # มาตรฐาน: 0=Pos, 1=Neu, 2=Neg
+                    label_map = {
+                        'LABEL_0': 'Positive 😊', 
+                        'LABEL_1': 'Neutral 😐', 
+                        'LABEL_2': 'Negative 😠'
+                    }
                     
-                with gr.Column():
-                    # Sentiment Bar แสดงผล 3 คลาสแบบ Real-time 
-                    out_label = gr.Label(label='Sentiment Confidence Score (Sentiment Bar)', num_top_classes=3)
-            
-            # ตารางประวัติ Query History 
-            gr.Markdown("### 🕒 ประวัติการทำนายในเซสชันนี้ (Query History)")
-            history_state = gr.State([])
-            history_table = gr.Dataframe(headers=["ข้อความรีวิว", "ผลลัพธ์", "ความมั่นใจ %"], interactive=False)
-            
-            btn.click(fn=predict_single, inputs=[inp, history_state], outputs=[out_label, history_state])
-            history_state.change(fn=lambda h: h, inputs=history_state, outputs=history_table)
+                    results_dict = {label_map.get(r['label'], r['label']): r['score'] for r in raw_results}
+                    best_label = max(results_dict, key=results_dict.get)
+                    
+                    # แสดงผล
+                    st.subheader("ผลลัพธ์:")
+                    for label, score in results_dict.items():
+                        st.write(f"**{label}**")
+                        st.progress(score)
+                        st.caption(f"Confidence: {score:.2%}")
+                    
+                    # บันทึกลง Session History
+                    st.session_state.history.insert(0, {"text": input_text, "label": best_label})
+            else:
+                st.error("ไม่สามารถเชื่อมต่อโมเดลได้ กรุณาตรวจสอบ MODEL_ID")
 
-        # --- แท็บที่ 2: วิเคราะห์จากไฟล์ CSV ---
-        with gr.Tab("วิเคราะห์หลายรายการ (Batch CSV Upload)"):
-            gr.Markdown("อัปโหลดไฟล์ CSV ที่มีคอลัมน์ชื่อ `review` เพื่อวิเคราะห์ทีละหลายรายการพร้อมกัน")
-            with gr.Row():
-                with gr.Column():
-                    csv_inp = gr.File(label="อัปโหลดไฟล์ CSV ตรงนี้", file_types=['.csv'])
-                    csv_btn = gr.Button("📂 วิเคราะห์ไฟล์ CSV", variant='primary')
-                with gr.Column():
-                    csv_out = gr.Dataframe(label="ผลลัพธ์การวิเคราะห์แบบกลุ่ม")
-            
-            csv_btn.click(fn=predict_batch, inputs=csv_inp, outputs=csv_out)
+with tab2:
+    st.subheader("Batch Processing via CSV")
+    uploaded_file = st.file_uploader("เลือกไฟล์ CSV (ต้องมีคอลัมน์ 'review')", type=["csv"])
+    
+    if uploaded_file and classifier:
+        df = pd.read_csv(uploaded_file)
+        if st.button("เริ่มวิเคราะห์ทั้งไฟล์"):
+            with st.spinner('กำลังวิเคราะห์...'):
+                review_col = 'review' if 'review' in df.columns else df.columns[0]
+                
+                def get_sentiment(text):
+                    res = classifier(str(text))[0]
+                    top = max(res, key=lambda x: x['score'])
+                    # ใช้ Mapping เดียวกับข้างบน
+                    label_map_batch = {'LABEL_0': 'Positive', 'LABEL_1': 'Neutral', 'LABEL_2': 'Negative'}
+                    return label_map_batch.get(top['label'], top['label']), top['score']
 
-if __name__ == "__main__":
+                # ประมวลผล
+                results = df[review_col].apply(get_sentiment)
+                df['Sentiment'] = [r[0] for r in results]
+                df['Confidence'] = [f"{r[1]:.2%}" for r in results]
+                
+                st.success("วิเคราะห์สำเร็จ!")
+                st.dataframe(df, use_container_width=True)
+                
+                # ปุ่มดาวน์โหลด
+                csv = df.to_csv(index=False).encode('utf-8')
+                st.download_button("📥 ดาวน์โหลดผลลัพธ์", csv, "sentiment_results.csv", "text/csv")
 
-    demo.launch(server_name="0.0.0.0", server_port=10000)
-
+with tab3:
+    st.info("กดที่ข้อความเพื่อนำไปใส่ในช่องวิเคราะห์")
+    demo_samples = [
+        "อาหารอร่อยมาก พนักงานบริการดีเยี่ยม บรรยากาศในร้านดีสุดๆ",
+        "รสชาติอาหารพอใช้ได้ แต่รอนานเกินไปหน่อย ราคาแอบสูง",
+        "แย่มากครับ แมลงสาบวิ่งบนโต๊ะ อาหารไม่สด ไม่แนะนำอย่างยิ่ง"
+    ]
+    for sample in demo_samples:
+        if st.button(sample):
+            st.info(f"ก๊อปปี้ข้อความนี้ไปวางในแท็บแรกได้เลย: \n\n {sample}")
